@@ -46,7 +46,6 @@ CREATE TABLE IF NOT EXISTS documents (
   original_name TEXT NOT NULL,
   stored_name   TEXT NOT NULL UNIQUE,
   size          INTEGER NOT NULL,
-  uploaded_by   TEXT NOT NULL DEFAULT 'staff', -- 'staff' or 'patient'
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -61,19 +60,7 @@ export function openDatabase(dbPath) {
   db.exec('PRAGMA foreign_keys = ON;');
   if (dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
   db.exec(SCHEMA);
-  migrate(db);
   return db;
-}
-
-/** Brings databases created by older versions up to date. */
-function migrate(db) {
-  const documentColumns = db
-    .prepare('PRAGMA table_info(documents)')
-    .all()
-    .map((column) => column.name);
-  if (!documentColumns.includes('uploaded_by')) {
-    db.exec("ALTER TABLE documents ADD COLUMN uploaded_by TEXT NOT NULL DEFAULT 'staff'");
-  }
 }
 
 /** Creates the first admin account from env settings when no admin exists yet. */

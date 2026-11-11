@@ -35,8 +35,6 @@ export const config = {
   maxUploadMb: Number(env.MAX_UPLOAD_MB) || 20,
   // How long a patient can open their PDFs after entering their file number and phone.
   patientAccessMinutes: Number(env.PATIENT_ACCESS_MINUTES) || 30,
-  // Most PDFs a patient can add to their own file from the patient page.
-  patientMaxUploads: Number(env.PATIENT_MAX_UPLOADS) || 20,
   jwtSecret,
   jwtExpiresIn: env.JWT_EXPIRES_IN || '12h',
   // Set to the number of reverse proxies in front of the app (e.g. 1 on Render/Railway/Nginx)

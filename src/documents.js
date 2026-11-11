@@ -7,8 +7,7 @@ import multer from 'multer';
 export const MAX_FILES_PER_UPLOAD = 10;
 const MAX_TITLE = 200;
 
-// `code` lets the patient page show the message in the patient's language.
-export const httpError = (status, message, code) => Object.assign(new Error(message), { status, code });
+const httpError = (status, message) => Object.assign(new Error(message), { status });
 
 /** Express middleware that reads up to 10 PDFs from the multipart field "files" into memory. */
 export function pdfUpload(config) {
@@ -21,10 +20,10 @@ export function pdfUpload(config) {
     upload(req, res, (err) => {
       if (!err) return next();
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return next(httpError(413, `Each PDF must be ${config.maxUploadMb} MB or smaller`, 'TOO_LARGE'));
+        return next(httpError(413, `Each PDF must be ${config.maxUploadMb} MB or smaller`));
       }
       if (err.code === 'LIMIT_FILE_COUNT' || err.code === 'LIMIT_UNEXPECTED_FILE') {
-        return next(httpError(400, `Upload up to ${MAX_FILES_PER_UPLOAD} PDFs at a time`, 'TOO_MANY_FILES'));
+        return next(httpError(400, `Upload up to ${MAX_FILES_PER_UPLOAD} PDFs at a time`));
       }
       return next(err);
     });
@@ -44,12 +43,12 @@ const isPdf = (buffer) => buffer.subarray(0, 5).toString('latin1') === '%PDF-';
  */
 export function readUploadedPdfs(req) {
   const files = req.files || [];
-  if (!files.length) throw httpError(400, 'Choose at least one PDF file', 'NO_FILES');
+  if (!files.length) throw httpError(400, 'Choose at least one PDF file');
   const titles = [].concat(req.body?.titles ?? []);
 
   return files.map((file, index) => {
     const originalName = decodeFileName(file.originalname || 'document.pdf');
-    if (!isPdf(file.buffer)) throw httpError(400, `"${originalName}" is not a PDF file`, 'NOT_PDF');
+    if (!isPdf(file.buffer)) throw httpError(400, `"${originalName}" is not a PDF file`);
     const title = String(titles[index] ?? '').trim() || originalName.replace(/\.pdf$/i, '');
     return {
       title: title.slice(0, MAX_TITLE),
@@ -60,16 +59,12 @@ export function readUploadedPdfs(req) {
   });
 }
 
-/**
- * Writes PDFs to disk and records them for a patient. Removes written files if anything fails.
- * `uploadedBy` is 'staff' (admin dashboard) or 'patient' (patient page).
- */
-export function saveDocuments(db, config, patientId, pdfs, uploadedBy = 'staff') {
+/** Writes PDFs to disk and records them for a patient. Removes written files if anything fails. */
+export function saveDocuments(db, config, patientId, pdfs) {
   fs.mkdirSync(config.uploadDir, { recursive: true });
   const written = [];
   const insert = db.prepare(
-    `INSERT INTO documents (patient_id, title, original_name, stored_name, size, uploaded_by)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    'INSERT INTO documents (patient_id, title, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)',
   );
   db.exec('BEGIN');
   try {
@@ -77,7 +72,7 @@ export function saveDocuments(db, config, patientId, pdfs, uploadedBy = 'staff')
       const storedName = `${crypto.randomUUID()}.pdf`;
       fs.writeFileSync(path.join(config.uploadDir, storedName), pdf.buffer, { flag: 'wx' });
       written.push(storedName);
-      insert.run(patientId, pdf.title, pdf.originalName, storedName, pdf.size, uploadedBy);
+      insert.run(patientId, pdf.title, pdf.originalName, storedName, pdf.size);
     }
     db.exec('COMMIT');
   } catch (err) {
@@ -98,7 +93,6 @@ export const toDocument = (row) => ({
   title: row.title,
   originalName: row.original_name,
   size: row.size,
-  uploadedBy: row.uploaded_by,
   createdAt: row.created_at,
 });
 
