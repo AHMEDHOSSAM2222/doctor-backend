@@ -59,6 +59,7 @@ export function publicRoutes({ db, config }) {
   });
 
   // Opens one PDF from the patient's file: /api/public/documents/:id?token=<access token>
+  // Add &download=1 to save the PDF to the phone instead of viewing it.
   router.get('/documents/:docId', (req, res) => {
     res.set('Cache-Control', 'no-store');
     const patientId = verifyPatientToken(req.query.token, config);
@@ -69,7 +70,7 @@ export function publicRoutes({ db, config }) {
       .get(Number(req.params.docId), patientId);
     const notFound = () => res.status(404).type('text/plain; charset=utf-8').send(DOC_NOT_FOUND);
     if (!doc) return notFound();
-    return sendPdf(res, config, doc, notFound);
+    return sendPdf(res, config, doc, notFound, { download: req.query.download === '1' });
   });
 
   return router;

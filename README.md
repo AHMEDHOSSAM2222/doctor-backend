@@ -14,8 +14,8 @@ Uploaded PDFs are stored as files in `data/uploads`.
 3. They enter their **file number** and the **phone number** registered on the file.
 4. The frontend calls `POST /api/public/lookup`. When both match, the API returns the file: details,
    allergies, chronic conditions, doctor's notes, all visits, and the list of PDFs in the file.
-5. The patient taps a PDF to open it in their phone's PDF viewer. The lookup returns a temporary access
-   token (30 minutes by default) that only opens PDFs in that patient's own file.
+5. The patient taps a PDF to open it in their phone's PDF viewer, or downloads it to their phone. The lookup
+   returns a temporary access token (30 minutes by default) that only opens PDFs in that patient's own file.
 
 The phone number works as a second check, so nobody can read someone else's file by guessing file numbers.
 Failed lookups are rate limited per visitor (10 per 15 minutes by default). Phone numbers match with or without
@@ -70,26 +70,26 @@ All settings are environment variables. See [`.env.example`](.env.example).
 
 Admin routes need an `Authorization: Bearer <token>` header with the token from `/api/auth/login`.
 
-| Method   | Path                                   | Who    | Description                                                            |
-| -------- | -------------------------------------- | ------ | ---------------------------------------------------------------------- |
-| `GET`    | `/api/health`                          | public | Health check                                                           |
-| `POST`   | `/api/public/lookup`                   | public | `{ fileNumber, phone }` → the patient's file, PDFs and an access token |
-| `GET`    | `/api/public/documents/:id?token=`     | public | Opens one of the patient's PDFs (token from the lookup)                |
-| `POST`   | `/api/auth/login`                      | public | `{ username, password }` → `{ token }`                                 |
-| `GET`    | `/api/auth/me`                         | admin  | Current admin                                                          |
-| `POST`   | `/api/auth/change-password`            | admin  | `{ currentPassword, newPassword }`                                     |
-| `GET`    | `/api/patients?search=&limit=&offset=` | admin  | List and search patient files                                          |
-| `GET`    | `/api/patients/next-file-number`       | admin  | Next free file number                                                  |
-| `POST`   | `/api/patients`                        | admin  | Create a file (empty `fileNumber` = next number)                       |
-| `GET`    | `/api/patients/:id`                    | admin  | A file with its visits                                                 |
-| `PUT`    | `/api/patients/:id`                    | admin  | Update a file                                                          |
-| `DELETE` | `/api/patients/:id`                    | admin  | Delete a file and its visits                                           |
-| `POST`   | `/api/patients/:id/visits`             | admin  | Add a visit                                                            |
-| `PUT`    | `/api/patients/:id/visits/:visitId`    | admin  | Update a visit                                                         |
-| `DELETE` | `/api/patients/:id/visits/:visitId`    | admin  | Delete a visit                                                         |
-| `POST`   | `/api/patients/:id/documents`          | admin  | Upload PDFs (multipart: `files`, and `titles` in the same order)       |
-| `GET`    | `/api/patients/:id/documents/:docId`   | admin  | Open a PDF                                                             |
-| `DELETE` | `/api/patients/:id/documents/:docId`   | admin  | Delete a PDF                                                           |
+| Method   | Path                                   | Who    | Description                                                                               |
+| -------- | -------------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| `GET`    | `/api/health`                          | public | Health check                                                                              |
+| `POST`   | `/api/public/lookup`                   | public | `{ fileNumber, phone }` → the patient's file, PDFs and an access token                    |
+| `GET`    | `/api/public/documents/:id?token=`     | public | Opens one of the patient's PDFs (token from the lookup); add `&download=1` to download it |
+| `POST`   | `/api/auth/login`                      | public | `{ username, password }` → `{ token }`                                                    |
+| `GET`    | `/api/auth/me`                         | admin  | Current admin                                                                             |
+| `POST`   | `/api/auth/change-password`            | admin  | `{ currentPassword, newPassword }`                                                        |
+| `GET`    | `/api/patients?search=&limit=&offset=` | admin  | List and search patient files                                                             |
+| `GET`    | `/api/patients/next-file-number`       | admin  | Next free file number                                                                     |
+| `POST`   | `/api/patients`                        | admin  | Create a file (empty `fileNumber` = next number)                                          |
+| `GET`    | `/api/patients/:id`                    | admin  | A file with its visits                                                                    |
+| `PUT`    | `/api/patients/:id`                    | admin  | Update a file                                                                             |
+| `DELETE` | `/api/patients/:id`                    | admin  | Delete a file and its visits                                                              |
+| `POST`   | `/api/patients/:id/visits`             | admin  | Add a visit                                                                               |
+| `PUT`    | `/api/patients/:id/visits/:visitId`    | admin  | Update a visit                                                                            |
+| `DELETE` | `/api/patients/:id/visits/:visitId`    | admin  | Delete a visit                                                                            |
+| `POST`   | `/api/patients/:id/documents`          | admin  | Upload PDFs (multipart: `files`, and `titles` in the same order)                          |
+| `GET`    | `/api/patients/:id/documents/:docId`   | admin  | Open a PDF                                                                                |
+| `DELETE` | `/api/patients/:id/documents/:docId`   | admin  | Delete a PDF                                                                              |
 
 Patient fields: `fileNumber`, `fullName`, `phone`, `dateOfBirth` (YYYY-MM-DD), `gender` (`male`/`female`),
 `bloodType`, `allergies`, `chronicConditions`, `notes`. Visit fields: `visitDate`, `diagnosis`, `prescription`,

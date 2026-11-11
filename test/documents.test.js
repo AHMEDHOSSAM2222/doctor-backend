@@ -148,6 +148,21 @@ describe('patient PDF documents', () => {
     assert.deepEqual(Buffer.from(await res.arrayBuffer()), pdf('arabic'));
   });
 
+  test('patient downloads their PDF with its title as the file name', async () => {
+    const id = docIds['Blood test March 2026'];
+    const res = await fetch(`${baseUrl}/api/public/documents/${id}?token=${access.token}&download=1`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('content-type'), 'application/pdf');
+    assert.match(res.headers.get('content-disposition'), /^attachment; filename="Blood test March 2026\.pdf"/);
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), pdf('blood'));
+  });
+
+  test('download links need a valid token too', async () => {
+    const id = docIds['Blood test March 2026'];
+    const res = await fetch(`${baseUrl}/api/public/documents/${id}?download=1&token=garbage`);
+    assert.equal(res.status, 401);
+  });
+
   test('PDF links need a valid token', async () => {
     const id = docIds['تحليل'];
     for (const query of ['', '?token=', '?token=garbage']) {

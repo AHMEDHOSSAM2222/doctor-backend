@@ -100,15 +100,18 @@ export const toDocument = (row) => ({
 const encodeRfc5987 = (value) =>
   encodeURIComponent(value).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
-/** Streams a stored PDF so the browser shows it in its PDF viewer. */
-export function sendPdf(res, config, row, onMissing) {
+/**
+ * Streams a stored PDF. By default the browser shows it in its PDF viewer;
+ * with `download: true` it saves it as "<title>.pdf" instead.
+ */
+export function sendPdf(res, config, row, onMissing, { download = false } = {}) {
   const asciiName = row.title.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '') || 'document';
   res.sendFile(
     path.join(config.uploadDir, row.stored_name),
     {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="${asciiName}.pdf"; filename*=UTF-8''${encodeRfc5987(row.title)}.pdf`,
+        'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${asciiName}.pdf"; filename*=UTF-8''${encodeRfc5987(row.title)}.pdf`,
         'Cache-Control': 'private, no-store',
       },
       cacheControl: false,
