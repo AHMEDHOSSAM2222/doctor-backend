@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS visits (
 );
 
 CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id, visit_date);
+
+-- PDF files attached to a patient file. The PDF itself is stored on disk as stored_name.
+CREATE TABLE IF NOT EXISTS documents (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  patient_id    INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  title         TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  stored_name   TEXT NOT NULL UNIQUE,
+  size          INTEGER NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id, created_at);
 `;
 
 export function openDatabase(dbPath) {

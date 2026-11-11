@@ -23,15 +23,18 @@ if (!jwtSecret) {
   console.warn('[config] JWT_SECRET not set: using a random secret, admin logins will reset on restart.');
 }
 
-const resolveDbPath = (value) => {
-  if (value === ':memory:') return value;
-  return path.isAbsolute(value) ? value : path.join(rootDir, value);
-};
+const resolvePath = (value) => (path.isAbsolute(value) ? value : path.join(rootDir, value));
+const resolveDbPath = (value) => (value === ':memory:' ? value : resolvePath(value));
 
 export const config = {
   isProduction,
   port: Number(env.PORT) || 4000,
   dbPath: resolveDbPath(env.DB_PATH || 'data/clinic.db'),
+  // Folder where uploaded patient PDFs are stored. Keep it on a persistent disk next to the database.
+  uploadDir: resolvePath(env.UPLOAD_DIR || 'data/uploads'),
+  maxUploadMb: Number(env.MAX_UPLOAD_MB) || 20,
+  // How long a patient can open their PDFs after entering their file number and phone.
+  patientAccessMinutes: Number(env.PATIENT_ACCESS_MINUTES) || 30,
   jwtSecret,
   jwtExpiresIn: env.JWT_EXPIRES_IN || '12h',
   // Set to the number of reverse proxies in front of the app (e.g. 1 on Render/Railway/Nginx)

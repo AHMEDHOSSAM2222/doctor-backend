@@ -11,6 +11,9 @@ const config = {
   trustProxy: false,
   lookupMaxAttempts: 5,
   lookupWindowMinutes: 15,
+  patientAccessMinutes: 30,
+  maxUploadMb: 1,
+  uploadDir: '/nonexistent-uploads-not-used-here',
 };
 
 let server;

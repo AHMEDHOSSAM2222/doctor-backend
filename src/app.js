@@ -29,7 +29,7 @@ export function createApp({ db, config }) {
     if (err.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'Invalid JSON body' });
     }
-    if (err.status === 400) return res.status(400).json({ error: err.message });
+    if (err.status >= 400 && err.status < 500) return res.status(err.status).json({ error: err.message });
     if (/UNIQUE constraint failed: patients\.file_number/.test(err.message)) {
       return res.status(409).json({ error: 'This file number is already used by another patient' });
     }

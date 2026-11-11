@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireAdmin } from '../auth.js';
+import { pdfUpload, readUploadedPdfs, removeStoredFiles, saveDocuments, sendPdf, toDocument } from '../documents.js';
 import { parsePatientInput, parseVisitInput, toPatient, toVisit } from '../patients.js';
 
 const notFound = (res) => res.status(404).json({ error: 'Patient not found' });
@@ -22,7 +23,15 @@ export function patientRoutes({ db, config }) {
   const getPatient = (id) => db.prepare('SELECT * FROM patients WHERE id = ?').get(Number(id));
   const getVisits = (patientId) =>
     db.prepare('SELECT * FROM visits WHERE patient_id = ? ORDER BY visit_date DESC, id DESC').all(patientId);
-  const withVisits = (row) => ({ ...toPatient(row), visits: getVisits(row.id).map(toVisit) });
+  const getDocuments = (patientId) =>
+    db.prepare('SELECT * FROM documents WHERE patient_id = ? ORDER BY created_at DESC, id DESC').all(patientId);
+  const withVisits = (row) => ({
+    ...toPatient(row),
+    visits: getVisits(row.id).map(toVisit),
+    documents: getDocuments(row.id).map(toDocument),
+  });
+  const touch = (patientId) =>
+    db.prepare("UPDATE patients SET updated_at = datetime('now') WHERE id = ?").run(patientId);
 
   router.get('/', (req, res) => {
     const search = String(req.query.search || '').trim();
@@ -85,8 +94,11 @@ export function patientRoutes({ db, config }) {
   });
 
   router.delete('/:id', (req, res) => {
-    const { changes } = db.prepare('DELETE FROM patients WHERE id = ?').run(Number(req.params.id));
-    if (!changes) return notFound(res);
+    const row = getPatient(req.params.id);
+    if (!row) return notFound(res);
+    const storedNames = getDocuments(row.id).map((doc) => doc.stored_name);
+    db.prepare('DELETE FROM patients WHERE id = ?').run(row.id);
+    removeStoredFiles(config, storedNames);
     return res.status(204).end();
   });
 
@@ -98,7 +110,7 @@ export function patientRoutes({ db, config }) {
       `INSERT INTO visits (patient_id, visit_date, diagnosis, prescription, notes)
        VALUES (:patient_id, :visit_date, :diagnosis, :prescription, :notes)`,
     ).run({ ...visit, patient_id: row.id });
-    db.prepare("UPDATE patients SET updated_at = datetime('now') WHERE id = ?").run(row.id);
+    touch(row.id);
     return res.status(201).json({ patient: withVisits(getPatient(row.id)) });
   });
 
@@ -114,7 +126,7 @@ export function patientRoutes({ db, config }) {
       )
       .run({ ...visit, id: Number(req.params.visitId), patient_id: row.id });
     if (!changes) return res.status(404).json({ error: 'Visit not found' });
-    db.prepare("UPDATE patients SET updated_at = datetime('now') WHERE id = ?").run(row.id);
+    touch(row.id);
     return res.json({ patient: withVisits(getPatient(row.id)) });
   });
 
@@ -125,6 +137,35 @@ export function patientRoutes({ db, config }) {
       .prepare('DELETE FROM visits WHERE id = ? AND patient_id = ?')
       .run(Number(req.params.visitId), row.id);
     if (!changes) return res.status(404).json({ error: 'Visit not found' });
+    return res.json({ patient: withVisits(getPatient(row.id)) });
+  });
+
+  // ---- PDF documents ----
+  const getDocument = (patientId, docId) =>
+    db.prepare('SELECT * FROM documents WHERE id = ? AND patient_id = ?').get(Number(docId), patientId);
+
+  router.post('/:id/documents', pdfUpload(config), (req, res) => {
+    const row = getPatient(req.params.id);
+    if (!row) return notFound(res);
+    saveDocuments(db, config, row.id, readUploadedPdfs(req));
+    touch(row.id);
+    return res.status(201).json({ patient: withVisits(getPatient(row.id)) });
+  });
+
+  router.get('/:id/documents/:docId', (req, res) => {
+    const doc = getDocument(Number(req.params.id), req.params.docId);
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    return sendPdf(res, config, doc, () => res.status(404).json({ error: 'The PDF file is missing on the server' }));
+  });
+
+  router.delete('/:id/documents/:docId', (req, res) => {
+    const row = getPatient(req.params.id);
+    if (!row) return notFound(res);
+    const doc = getDocument(row.id, req.params.docId);
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    db.prepare('DELETE FROM documents WHERE id = ?').run(doc.id);
+    removeStoredFiles(config, [doc.stored_name]);
+    touch(row.id);
     return res.json({ patient: withVisits(getPatient(row.id)) });
   });
 
