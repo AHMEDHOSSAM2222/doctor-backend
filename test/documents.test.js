@@ -15,6 +15,7 @@ const config = {
   lookupMaxAttempts: 50,
   lookupWindowMinutes: 15,
   patientAccessMinutes: 30,
+  patientMaxUploads: 3,
   maxUploadMb: 1,
   uploadDir,
 };
@@ -184,5 +185,136 @@ describe('patient PDF documents', () => {
     assert.equal(status, 204);
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(storedFiles().length, before - 1);
+  });
+});
+
+describe('patients adding their own PDFs', () => {
+  let patient;
+  let patientToken;
+  let staffDocId;
+
+  const lookup = async () => {
+    const res = await fetch(`${baseUrl}/api/public/lookup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ fileNumber: patient.fileNumber, phone: '01033333333' }),
+    });
+    return res.json();
+  };
+
+  const patientUpload = async (files, bearer = patientToken) => {
+    const form = new FormData();
+    for (const { name, buffer, title = '' } of files) {
+      form.append('files', new Blob([buffer], { type: 'application/pdf' }), name);
+      form.append('titles', title);
+    }
+    const res = await fetch(`${baseUrl}/api/public/documents`, {
+      method: 'POST',
+      headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
+      body: form,
+    });
+    return { status: res.status, data: await res.json() };
+  };
+
+  const patientDelete = async (docId) => {
+    const res = await fetch(`${baseUrl}/api/public/documents/${docId}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${patientToken}` },
+    });
+    return { status: res.status, data: await res.json() };
+  };
+
+  before(async () => {
+    patient = (await api('POST', '/api/patients', { fullName: 'Patient C', phone: '01033333333' })).data.patient;
+    const staff = await upload(patient.id, [
+      { name: 'clinic.pdf', buffer: pdf('clinic report'), title: 'Clinic report' },
+    ]);
+    staffDocId = staff.data.patient.documents[0].id;
+    patientToken = (await lookup()).access.token;
+  });
+
+  test('a patient uploads a PDF to their own file', async () => {
+    const { status, data } = await patientUpload([
+      { name: 'outside-lab.pdf', buffer: pdf('outside lab'), title: 'Outside lab results' },
+    ]);
+    assert.equal(status, 201);
+    const added = data.documents.find((d) => d.title === 'Outside lab results');
+    assert.equal(added.uploadedBy, 'patient');
+    assert.equal(data.documents.find((d) => d.id === staffDocId).uploadedBy, 'staff');
+    assert.equal(added.stored_name, undefined);
+
+    // Staff see it in the dashboard, marked as added by the patient.
+    const { data: admin } = await api('GET', `/api/patients/${patient.id}`);
+    assert.equal(admin.patient.documents.find((d) => d.id === added.id).uploadedBy, 'patient');
+
+    // And the patient can open it with the same access token.
+    const res = await fetch(`${baseUrl}/api/public/documents/${added.id}?token=${patientToken}`);
+    assert.deepEqual(Buffer.from(await res.arrayBuffer()), pdf('outside lab'));
+  });
+
+  test('uploading needs the patient access token', async () => {
+    assert.equal((await patientUpload([{ name: 'x.pdf', buffer: pdf('x') }], null)).status, 401);
+    assert.equal((await patientUpload([{ name: 'x.pdf', buffer: pdf('x') }], 'garbage')).data.code, 'EXPIRED');
+    assert.equal(
+      (await patientUpload([{ name: 'x.pdf', buffer: pdf('x') }], token)).status,
+      401,
+      'admin token refused',
+    );
+  });
+
+  test('patients can only upload real PDFs', async () => {
+    const { status, data } = await patientUpload([{ name: 'photo.pdf', buffer: Buffer.from('\xff\xd8 jpeg') }]);
+    assert.equal(status, 400);
+    assert.equal(data.code, 'NOT_PDF');
+  });
+
+  test('patients have a limit on how many PDFs they can add', async () => {
+    const { status, data } = await patientUpload([
+      { name: 'a.pdf', buffer: pdf('a') },
+      { name: 'b.pdf', buffer: pdf('b') },
+      { name: 'c.pdf', buffer: pdf('c') },
+    ]);
+    assert.equal(status, 400);
+    assert.equal(data.code, 'UPLOAD_LIMIT');
+    assert.equal((await patientUpload([{ name: 'a.pdf', buffer: pdf('a') }])).status, 201, 'still under the limit');
+  });
+
+  test("patients can delete PDFs they added, but not the clinic's", async () => {
+    const file = await lookup();
+    const own = file.documents.find((d) => d.uploadedBy === 'patient');
+    const before = storedFiles().length;
+
+    const refused = await patientDelete(staffDocId);
+    assert.equal(refused.status, 403);
+    assert.equal(refused.data.code, 'NOT_YOURS');
+
+    const { status, data: after } = await patientDelete(own.id);
+    assert.equal(status, 200);
+    assert.ok(!after.documents.some((d) => d.id === own.id));
+    assert.ok(after.documents.some((d) => d.id === staffDocId));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(storedFiles().length, before - 1);
+  });
+
+  test('a patient cannot delete documents in another file', async () => {
+    const other = (await api('POST', '/api/patients', { fullName: 'Patient D', phone: '01044444444' })).data.patient;
+    const { data } = await upload(other.id, [{ name: 'd.pdf', buffer: pdf('d') }]);
+    const { status } = await patientDelete(data.patient.documents[0].id);
+    assert.equal(status, 404);
+  });
+});
+
+describe('database migration', () => {
+  test('adds uploaded_by to documents tables created before patient uploads', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const file = path.join(uploadDir, 'old.db');
+    const old = new DatabaseSync(file);
+    old.exec(`CREATE TABLE documents (id INTEGER PRIMARY KEY, patient_id INTEGER, title TEXT, original_name TEXT,
+              stored_name TEXT, size INTEGER, created_at TEXT DEFAULT (datetime('now')));
+              INSERT INTO documents (patient_id, title, original_name, stored_name, size) VALUES (1, 't', 'o', 's', 1);`);
+    old.close();
+    const db = openDatabase(file);
+    assert.equal(db.prepare('SELECT uploaded_by FROM documents').get().uploaded_by, 'staff');
+    db.close();
   });
 });
