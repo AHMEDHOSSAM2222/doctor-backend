@@ -4,8 +4,8 @@ API for the clinic's patient file system. Staff manage patient files from the ad
 [doctor-frontend](https://github.com/AHMEDHOSSAM2222/doctor-frontend). Patients scan the clinic QR code with their
 phone, enter their file number and phone number, and get their file back.
 
-Built with Node.js, Express and SQLite (Node's built-in `node:sqlite`, so there is no database server to install).
-Uploaded PDFs are stored as files in `data/uploads`.
+Built with Node.js, Express and **MySQL** (8.x or 5.7+; MariaDB 10.3+ also works). Patient files, visits and
+the list of PDFs are stored in MySQL; the PDF files themselves are stored on disk in `data/uploads`.
 
 ## How a patient opens their file
 
@@ -23,7 +23,23 @@ the country code, spaces or dashes, and Arabic-Indic digits (٠١٢٣…) are ac
 
 ## Run locally
 
-Requires Node.js 22.5 or newer.
+Requires Node.js 22 or newer and a MySQL server.
+
+**1. Create the database and a user** (in the MySQL client, e.g. `mysql -u root -p`; choose your own password):
+
+```sql
+CREATE DATABASE doctor_clinic CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'doctor'@'localhost' IDENTIFIED BY 'your-password';
+GRANT ALL PRIVILEGES ON doctor_clinic.* TO 'doctor'@'localhost';
+```
+
+No MySQL installed? With Docker you can start one instead:
+
+```bash
+docker run -d --name clinic-mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=root-pass -e MYSQL_DATABASE=doctor_clinic -e MYSQL_USER=doctor -e MYSQL_PASSWORD=your-password mysql:8.4
+```
+
+**2. Configure and start the API:**
 
 ```bash
 npm install
@@ -33,38 +49,48 @@ npm install
 cp .env.example .env
 ```
 
+Put the MySQL password in `.env` (`MYSQL_PASSWORD=your-password`), then:
+
 ```bash
 npm run dev
 ```
 
-The API starts on http://localhost:4000. On the first start it creates the admin account from `ADMIN_USERNAME` /
-`ADMIN_PASSWORD` (default `admin` / `admin123`). **Change that password from the Account page after logging in.**
+The API starts on http://localhost:4000. On startup it creates the tables if they do not exist (see
+[`schema.sql`](schema.sql), which you can also run by hand). On the first start it creates the admin account from
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` (default `admin` / `admin123`). **Change that password from the Account page
+after logging in.** If MySQL cannot be reached, the API stops with a message saying which setting to check.
 
-Run the tests:
+**Run the tests.** They create a temporary database for each test file and drop it afterwards, so the user needs
+permission to create databases (the root user, or `GRANT ALL PRIVILEGES ON *.* TO ...` on a development machine):
 
 ```bash
-npm test
+TEST_DATABASE_URL=mysql://root:root-pass@127.0.0.1:3306 npm test
 ```
 
 ## Configuration
 
 All settings are environment variables. See [`.env.example`](.env.example).
 
-| Variable                 | Default          | Purpose                                                            |
-| ------------------------ | ---------------- | ------------------------------------------------------------------ |
-| `PORT`                   | `4000`           | Port the API listens on                                            |
-| `JWT_SECRET`             | random (dev)     | Signs admin login tokens. **Required when `NODE_ENV=production`**  |
-| `JWT_EXPIRES_IN`         | `12h`            | How long an admin stays logged in                                  |
-| `DB_PATH`                | `data/clinic.db` | SQLite database file                                               |
-| `UPLOAD_DIR`             | `data/uploads`   | Folder for uploaded patient PDFs                                   |
-| `MAX_UPLOAD_MB`          | `20`             | Largest PDF accepted                                               |
-| `PATIENT_ACCESS_MINUTES` | `30`             | How long a patient can open their PDFs after looking up their file |
-| `ADMIN_USERNAME`         | `admin`          | First admin account (created only if no admin exists)              |
-| `ADMIN_PASSWORD`         | `admin123`       | Its password                                                       |
-| `CORS_ORIGINS`           | `*`              | Frontend address(es) allowed to call the API, comma separated      |
-| `TRUST_PROXY`            | off              | Number of proxies in front of the API, e.g. `1`                    |
-| `LOOKUP_MAX_ATTEMPTS`    | `10`             | Failed patient lookups allowed per visitor per window              |
-| `LOOKUP_WINDOW_MINUTES`  | `15`             | Length of that window                                              |
+| Variable                 | Default         | Purpose                                                             |
+| ------------------------ | --------------- | ------------------------------------------------------------------- |
+| `PORT`                   | `4000`          | Port the API listens on                                             |
+| `JWT_SECRET`             | random (dev)    | Signs admin login tokens. **Required when `NODE_ENV=production`**   |
+| `JWT_EXPIRES_IN`         | `12h`           | How long an admin stays logged in                                   |
+| `DATABASE_URL`           | (empty)         | MySQL connection as one URL: `mysql://user:password@host:3306/name` |
+| `MYSQL_HOST`             | `127.0.0.1`     | MySQL server (used when `DATABASE_URL` is empty)                    |
+| `MYSQL_PORT`             | `3306`          | MySQL port                                                          |
+| `MYSQL_USER`             | `root`          | MySQL user                                                          |
+| `MYSQL_PASSWORD`         | (empty)         | MySQL password                                                      |
+| `MYSQL_DATABASE`         | `doctor_clinic` | Database name (created on startup if the user is allowed to)        |
+| `UPLOAD_DIR`             | `data/uploads`  | Folder for uploaded patient PDFs                                    |
+| `MAX_UPLOAD_MB`          | `20`            | Largest PDF accepted                                                |
+| `PATIENT_ACCESS_MINUTES` | `30`            | How long a patient can open their PDFs after looking up their file  |
+| `ADMIN_USERNAME`         | `admin`         | First admin account (created only if no admin exists)               |
+| `ADMIN_PASSWORD`         | `admin123`      | Its password                                                        |
+| `CORS_ORIGINS`           | `*`             | Frontend address(es) allowed to call the API, comma separated       |
+| `TRUST_PROXY`            | off             | Number of proxies in front of the API, e.g. `1`                     |
+| `LOOKUP_MAX_ATTEMPTS`    | `10`            | Failed patient lookups allowed per visitor per window               |
+| `LOOKUP_WINDOW_MINUTES`  | `15`            | Length of that window                                               |
 
 ## API
 
@@ -105,8 +131,10 @@ named `.pdf`) and saved under random names, so a stored file cannot be found by 
 - Set `NODE_ENV=production`, a long random `JWT_SECRET`, and `CORS_ORIGINS` to your frontend address.
 - Serve it over **HTTPS**. Patient data must not travel over plain HTTP.
 - Behind a proxy or hosting platform, set `TRUST_PROXY=1` so rate limiting works per visitor.
-- The database and the PDFs live in the `data/` folder. Put it on a **persistent disk** (on Render, Railway or
-  Fly.io, attach a volume), or all patient files and PDFs are lost when the server restarts. Back up the whole
-  folder regularly.
+- Use a MySQL server that is backed up (most hosts offer managed MySQL with daily backups), or back it up yourself
+  with `mysqldump doctor_clinic > backup.sql`.
+- The PDF files live in `UPLOAD_DIR` (`data/uploads`), not in MySQL. Put that folder on a **persistent disk** (on
+  Render, Railway or Fly.io, attach a volume), or the PDFs are lost when the server restarts, and back it up
+  together with the database.
 - If Nginx sits in front of the API, raise its upload limit (`client_max_body_size 25m;`); the default of 1 MB
   rejects most PDFs.

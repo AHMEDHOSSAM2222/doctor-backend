@@ -1,73 +1,99 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import mysql from 'mysql2/promise';
 import { hashPassword } from './auth.js';
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS admins (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  password_hash TEXT NOT NULL,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
+const SCHEMA_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'schema.sql');
 
-CREATE TABLE IF NOT EXISTS patients (
-  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-  file_number        TEXT NOT NULL UNIQUE COLLATE NOCASE,
-  full_name          TEXT NOT NULL,
-  phone              TEXT NOT NULL,
-  date_of_birth      TEXT,
-  gender             TEXT,
-  blood_type         TEXT,
-  allergies          TEXT,
-  chronic_conditions TEXT,
-  notes              TEXT,
-  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
-);
+/** The CREATE TABLE statements from schema.sql, one per entry. */
+function schemaStatements() {
+  return fs
+    .readFileSync(SCHEMA_FILE, 'utf8')
+    .split(/;\s*$/m)
+    .map((statement) => statement.replace(/^\s*--.*$/gm, '').trim())
+    .filter(Boolean);
+}
 
-CREATE TABLE IF NOT EXISTS visits (
-  id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  patient_id   INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-  visit_date   TEXT NOT NULL,
-  diagnosis    TEXT,
-  prescription TEXT,
-  notes        TEXT,
-  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
+/**
+ * Small helpers over a mysql2 pool or connection, so queries read the same everywhere:
+ * `all` returns rows, `get` the first row, `run` the result ({ insertId, affectedRows }).
+ * Parameters are `?` with an array, or `:name` with an object.
+ */
+function helpers(runner) {
+  return {
+    all: async (sql, params = []) => (await runner.query(sql, params))[0],
+    get: async (sql, params = []) => (await runner.query(sql, params))[0][0],
+    run: async (sql, params = []) => (await runner.query(sql, params))[0],
+  };
+}
 
-CREATE INDEX IF NOT EXISTS idx_visits_patient ON visits(patient_id, visit_date);
-
--- PDF files attached to a patient file. The PDF itself is stored on disk as stored_name.
-CREATE TABLE IF NOT EXISTS documents (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  patient_id    INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
-  title         TEXT NOT NULL,
-  original_name TEXT NOT NULL,
-  stored_name   TEXT NOT NULL UNIQUE,
-  size          INTEGER NOT NULL,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id, created_at);
-`;
-
-export function openDatabase(dbPath) {
-  if (dbPath !== ':memory:') {
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+/** Creates the database if it is missing (needs the CREATE privilege; skipped quietly otherwise). */
+async function ensureDatabase(connection) {
+  const { database, ...withoutDatabase } = connection;
+  if (!database) return;
+  let admin;
+  try {
+    admin = await mysql.createConnection(withoutDatabase);
+    await admin.query(
+      `CREATE DATABASE IF NOT EXISTS ${mysql.escapeId(database)} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    );
+  } catch {
+    // The database usually exists already; a real connection problem is reported by the pool below.
+  } finally {
+    await admin?.end().catch(() => {});
   }
-  const db = new DatabaseSync(dbPath);
-  db.exec('PRAGMA foreign_keys = ON;');
-  if (dbPath !== ':memory:') db.exec('PRAGMA journal_mode = WAL;');
-  db.exec(SCHEMA);
-  return db;
+}
+
+/**
+ * Connects to MySQL, creates the tables if needed and returns the database helpers.
+ * `connection` is { host, port, user, password, database }.
+ */
+export async function openDatabase(connection) {
+  await ensureDatabase(connection);
+
+  const pool = mysql.createPool({
+    ...connection,
+    charset: 'utf8mb4',
+    connectionLimit: 10,
+    namedPlaceholders: true,
+    // DATE and DATETIME columns come back as "YYYY-MM-DD" / "YYYY-MM-DD HH:MM:SS" strings (UTC).
+    dateStrings: true,
+    timezone: 'Z',
+  });
+  // Store and compare every timestamp in UTC, whatever the server's own time zone is.
+  pool.on('connection', (conn) => conn.query("SET time_zone = '+00:00'"));
+
+  for (const statement of schemaStatements()) {
+    await pool.query(statement);
+  }
+
+  return {
+    ...helpers(pool),
+    /** Runs `fn(tx)` in a transaction; `tx` has the same helpers. Rolls back if `fn` throws. */
+    async transaction(fn) {
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+        const result = await fn(helpers(conn));
+        await conn.commit();
+        return result;
+      } catch (err) {
+        await conn.rollback().catch(() => {});
+        throw err;
+      } finally {
+        conn.release();
+      }
+    },
+    close: () => pool.end(),
+  };
 }
 
 /** Creates the first admin account from env settings when no admin exists yet. */
-export function seedAdmin(db, username, password) {
-  const { count } = db.prepare('SELECT COUNT(*) AS count FROM admins').get();
+export async function seedAdmin(db, username, password) {
+  const { count } = await db.get('SELECT COUNT(*) AS count FROM admins');
   if (count > 0) return false;
-  db.prepare('INSERT INTO admins (username, password_hash) VALUES (?, ?)').run(username, hashPassword(password));
+  await db.run('INSERT INTO admins (username, password_hash) VALUES (?, ?)', [username, hashPassword(password)]);
   console.log(`[db] Created admin account "${username}". Change the password after first login.`);
   return true;
 }

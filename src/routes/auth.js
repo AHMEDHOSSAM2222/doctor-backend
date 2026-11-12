@@ -15,10 +15,10 @@ export function authRoutes({ db, config }) {
     message: { error: 'Too many login attempts, please try again later' },
   });
 
-  router.post('/login', loginLimiter, (req, res) => {
+  router.post('/login', loginLimiter, async (req, res) => {
     const username = String(req.body?.username || '').trim();
     const password = String(req.body?.password || '');
-    const admin = username && db.prepare('SELECT * FROM admins WHERE username = ?').get(username);
+    const admin = username && (await db.get('SELECT * FROM admins WHERE username = ?', [username]));
     if (!admin || !verifyPassword(password, admin.password_hash)) {
       return res.status(401).json({ error: 'Wrong username or password' });
     }
@@ -29,15 +29,15 @@ export function authRoutes({ db, config }) {
     res.json({ admin: { username: req.admin.username } });
   });
 
-  router.post('/change-password', requireAdmin(config), (req, res) => {
+  router.post('/change-password', requireAdmin(config), async (req, res) => {
     const currentPassword = String(req.body?.currentPassword || '');
     const newPassword = String(req.body?.newPassword || '');
-    const admin = db.prepare('SELECT * FROM admins WHERE id = ?').get(req.admin.id);
+    const admin = await db.get('SELECT * FROM admins WHERE id = ?', [req.admin.id]);
     if (!admin || !verifyPassword(currentPassword, admin.password_hash)) {
       return res.status(400).json({ error: 'Current password is wrong' });
     }
     if (newPassword.length < 8) throw new ValidationError('New password must be at least 8 characters');
-    db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), admin.id);
+    await db.run('UPDATE admins SET password_hash = ? WHERE id = ?', [hashPassword(newPassword), admin.id]);
     return res.json({ ok: true });
   });
 

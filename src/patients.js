@@ -21,7 +21,9 @@ const text = (value, field, { required = false, max = MAX_TEXT } = {}) => {
 
 const date = (value, field, { required = false } = {}) => {
   const str = text(value, field, { required, max: 10 });
-  if (str && (!DATE_RE.test(str) || Number.isNaN(Date.parse(str)))) {
+  // Round-trip check: rejects dates that do not exist, like 2026-02-30 (MySQL refuses them).
+  const real = DATE_RE.test(str) && new Date(`${str}T00:00:00Z`).toISOString().slice(0, 10) === str;
+  if (str && !real) {
     throw new ValidationError(`${field} must be a date in YYYY-MM-DD format`);
   }
   return str || null;
@@ -32,6 +34,12 @@ const oneOf = (value, field, allowed) => {
   if (!allowed.includes(str))
     throw new ValidationError(`${field} must be one of: ${allowed.filter(Boolean).join(', ')}`);
   return str || null;
+};
+
+/** A positive integer id from a URL parameter, or 0 (matches nothing) for anything else. */
+export const toId = (value) => {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : 0;
 };
 
 /** Converts Arabic-Indic (٠-٩) and Persian (۰-۹) digits, typed by Arabic phone keyboards, to 0-9. */

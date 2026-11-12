@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { createApp } from '../src/app.js';
-import { openDatabase, seedAdmin } from '../src/db.js';
+import { createTestDatabase } from './mysql.js';
 
 const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doctor-uploads-'));
 const config = {
@@ -22,6 +22,7 @@ const config = {
 const pdf = (text) => Buffer.from(`%PDF-1.4\n% ${text}\n%%EOF\n`);
 const storedFiles = () => fs.readdirSync(uploadDir);
 
+let testDb;
 let server;
 let baseUrl;
 let token;
@@ -54,8 +55,8 @@ const upload = async (patientId, files) => {
 };
 
 before(async () => {
-  const db = openDatabase(':memory:');
-  seedAdmin(db, 'admin', 'secret123');
+  testDb = await createTestDatabase();
+  const { db } = testDb;
   server = createApp({ db, config }).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -64,8 +65,9 @@ before(async () => {
   } = await api('POST', '/api/auth/login', { username: 'admin', password: 'secret123' }));
 });
 
-after(() => {
+after(async () => {
   server.close();
+  await testDb.drop();
   fs.rmSync(uploadDir, { recursive: true, force: true });
 });
 

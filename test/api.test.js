@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { createApp } from '../src/app.js';
-import { openDatabase, seedAdmin } from '../src/db.js';
+import { createTestDatabase } from './mysql.js';
 import { phonesMatch } from '../src/patients.js';
 
 const config = {
@@ -16,6 +16,7 @@ const config = {
   uploadDir: '/nonexistent-uploads-not-used-here',
 };
 
+let testDb;
 let server;
 let baseUrl;
 let token;
@@ -34,14 +35,17 @@ const api = async (method, path, body, auth = true) => {
 };
 
 before(async () => {
-  const db = openDatabase(':memory:');
-  seedAdmin(db, 'admin', 'secret123');
+  testDb = await createTestDatabase();
+  const { db } = testDb;
   server = createApp({ db, config }).listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => server.close());
+after(async () => {
+  server.close();
+  await testDb.drop();
+});
 
 describe('phonesMatch', () => {
   test('tolerates country codes, spaces and leading zeros', () => {
@@ -105,6 +109,40 @@ describe('patients and public lookup', () => {
   test('rejects duplicate file numbers', async () => {
     const { status } = await api('POST', '/api/patients', { fileNumber: '1001', fullName: 'X', phone: '0123456789' });
     assert.equal(status, 409);
+  });
+
+  test('rejects dates that do not exist instead of failing in MySQL', async () => {
+    const { status, data } = await api('POST', '/api/patients', {
+      fullName: 'Bad Date',
+      phone: '0123456789',
+      dateOfBirth: '2026-02-30',
+    });
+    assert.equal(status, 400);
+    assert.match(data.error, /Date of birth/);
+  });
+
+  test('treats non-numeric ids as not found', async () => {
+    assert.equal((await api('GET', '/api/patients/abc')).status, 404);
+    assert.equal((await api('DELETE', `/api/patients/${patientId}/visits/1e3`)).status, 404);
+  });
+
+  test('stores Arabic text and keeps file numbers unique regardless of case', async () => {
+    const created = await api('POST', '/api/patients', {
+      fileNumber: 'A-12',
+      fullName: 'منى علي حسن',
+      phone: '01099887766',
+      notes: 'حساسية من البنسلين',
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.data.patient.fullName, 'منى علي حسن');
+    assert.equal(created.data.patient.notes, 'حساسية من البنسلين');
+    assert.match(created.data.patient.createdAt, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    const createdAt = Date.parse(`${created.data.patient.createdAt.replace(' ', 'T')}Z`);
+    assert.ok(Math.abs(createdAt - Date.now()) < 60_000, 'timestamps are stored in UTC');
+
+    const duplicate = await api('POST', '/api/patients', { fileNumber: 'a-12', fullName: 'X', phone: '0123456789' });
+    assert.equal(duplicate.status, 409);
+    await api('DELETE', `/api/patients/${created.data.patient.id}`);
   });
 
   test('adds visits and lists patients', async () => {

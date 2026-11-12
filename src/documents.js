@@ -60,23 +60,22 @@ export function readUploadedPdfs(req) {
 }
 
 /** Writes PDFs to disk and records them for a patient. Removes written files if anything fails. */
-export function saveDocuments(db, config, patientId, pdfs) {
-  fs.mkdirSync(config.uploadDir, { recursive: true });
+export async function saveDocuments(db, config, patientId, pdfs) {
+  await fs.promises.mkdir(config.uploadDir, { recursive: true });
   const written = [];
-  const insert = db.prepare(
-    'INSERT INTO documents (patient_id, title, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)',
-  );
-  db.exec('BEGIN');
   try {
-    for (const pdf of pdfs) {
-      const storedName = `${crypto.randomUUID()}.pdf`;
-      fs.writeFileSync(path.join(config.uploadDir, storedName), pdf.buffer, { flag: 'wx' });
-      written.push(storedName);
-      insert.run(patientId, pdf.title, pdf.originalName, storedName, pdf.size);
-    }
-    db.exec('COMMIT');
+    await db.transaction(async (tx) => {
+      for (const pdf of pdfs) {
+        const storedName = `${crypto.randomUUID()}.pdf`;
+        await fs.promises.writeFile(path.join(config.uploadDir, storedName), pdf.buffer, { flag: 'wx' });
+        written.push(storedName);
+        await tx.run(
+          'INSERT INTO documents (patient_id, title, original_name, stored_name, size) VALUES (?, ?, ?, ?, ?)',
+          [patientId, pdf.title, pdf.originalName, storedName, pdf.size],
+        );
+      }
+    });
   } catch (err) {
-    db.exec('ROLLBACK');
     removeStoredFiles(config, written);
     throw err;
   }

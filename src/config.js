@@ -24,13 +24,33 @@ if (!jwtSecret) {
 }
 
 const resolvePath = (value) => (path.isAbsolute(value) ? value : path.join(rootDir, value));
-const resolveDbPath = (value) => (value === ':memory:' ? value : resolvePath(value));
+
+/** MySQL connection from DATABASE_URL (mysql://user:password@host:3306/name) or the MYSQL_* variables. */
+function databaseConnection() {
+  if (env.DATABASE_URL) {
+    const url = new URL(env.DATABASE_URL);
+    return {
+      host: url.hostname,
+      port: Number(url.port) || 3306,
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      database: decodeURIComponent(url.pathname.replace(/^\//, '')),
+    };
+  }
+  return {
+    host: env.MYSQL_HOST || '127.0.0.1',
+    port: Number(env.MYSQL_PORT) || 3306,
+    user: env.MYSQL_USER || 'root',
+    password: env.MYSQL_PASSWORD || '',
+    database: env.MYSQL_DATABASE || 'doctor_clinic',
+  };
+}
 
 export const config = {
   isProduction,
   port: Number(env.PORT) || 4000,
-  dbPath: resolveDbPath(env.DB_PATH || 'data/clinic.db'),
-  // Folder where uploaded patient PDFs are stored. Keep it on a persistent disk next to the database.
+  database: databaseConnection(),
+  // Folder where uploaded patient PDFs are stored. Keep it on a persistent disk and back it up with the database.
   uploadDir: resolvePath(env.UPLOAD_DIR || 'data/uploads'),
   maxUploadMb: Number(env.MAX_UPLOAD_MB) || 20,
   // How long a patient can open their PDFs after entering their file number and phone.
