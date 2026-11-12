@@ -128,6 +128,11 @@ named `.pdf`) and saved under random names, so a stored file cannot be found by 
 
 ## Deploying
 
+**[DEPLOY.md](DEPLOY.md)** puts the whole system (MySQL, this API and the website, with automatic HTTPS) on one
+server with Docker, step by step: `deploy/docker-compose.yml` runs it and `deploy/backup.sh` backs it up.
+
+If you host the parts separately instead:
+
 - Set `NODE_ENV=production`, a long random `JWT_SECRET`, and `CORS_ORIGINS` to your frontend address.
 - Serve it over **HTTPS**. Patient data must not travel over plain HTTP.
 - Behind a proxy or hosting platform, set `TRUST_PROXY=1` so rate limiting works per visitor.

@@ -1,0 +1,77 @@
+# The whole clinic system on one server: MySQL, the API, and the website with automatic HTTPS.
+# Clone doctor-backend and doctor-frontend into the same folder, then from this folder:
+#   cp .env.example .env    (fill it in)
+#   docker compose up -d --build
+# See DEPLOY.md in doctor-backend for the full steps.
+name: clinic
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in deploy/.env}
+      MYSQL_DATABASE: doctor_clinic
+      MYSQL_USER: doctor
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in deploy/.env}
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci']
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD-SHELL', 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    # No ports: MySQL is reachable only by the API inside this setup, never from the internet.
+
+  backend:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: doctor
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_DATABASE: doctor_clinic
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in deploy/.env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in deploy/.env}
+      CORS_ORIGINS: https://${DOMAIN}
+      TRUST_PROXY: 1
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      PATIENT_ACCESS_MINUTES: ${PATIENT_ACCESS_MINUTES:-30}
+    volumes:
+      - uploads:/app/data/uploads
+    # No ports: the website container forwards /api requests to it.
+
+  web:
+    build:
+      context: ../../doctor-frontend
+      args:
+        VITE_CLINIC_NAME: ${CLINIC_NAME:-Clinic}
+        VITE_MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/.env}
+      API_UPSTREAM: backend:4000
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - caddy-data:/data # HTTPS certificates
+      - caddy-config:/config
+
+volumes:
+  mysql-data:
+  uploads:
+  caddy-data:
+  caddy-config:
