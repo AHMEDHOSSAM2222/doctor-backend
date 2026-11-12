@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS visits (
   CONSTRAINT fk_visits_patient FOREIGN KEY (patient_id) REFERENCES patients (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Values the system creates for itself, such as the secret that signs staff logins when JWT_SECRET is not set.
+CREATE TABLE IF NOT EXISTS settings (
+  name  VARCHAR(100) NOT NULL,
+  value TEXT         NOT NULL,
+  PRIMARY KEY (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- PDF files attached to a patient file. The PDF itself is stored on disk (UPLOAD_DIR) as stored_name.
 CREATE TABLE IF NOT EXISTS documents (
   id            INT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -57,8 +57,9 @@ npm run dev
 
 The API starts on http://localhost:4000. On startup it creates the tables if they do not exist (see
 [`schema.sql`](schema.sql), which you can also run by hand). On the first start it creates the admin account from
-`ADMIN_USERNAME` / `ADMIN_PASSWORD` (default `admin` / `admin123`). **Change that password from the Account page
-after logging in.** If MySQL cannot be reached, the API stops with a message saying which setting to check.
+`ADMIN_USERNAME` / `ADMIN_PASSWORD` (in development the default is `admin` / `admin123`). **Change that password
+from the Account page after logging in.** If MySQL cannot be reached, the API stops with a message saying which
+setting to check.
 
 **Run the tests.** They create a temporary database for each test file and drop it afterwards, so the user needs
 permission to create databases (the root user, or `GRANT ALL PRIVILEGES ON *.* TO ...` on a development machine):
@@ -71,26 +72,26 @@ TEST_DATABASE_URL=mysql://root:root-pass@127.0.0.1:3306 npm test
 
 All settings are environment variables. See [`.env.example`](.env.example).
 
-| Variable                 | Default         | Purpose                                                             |
-| ------------------------ | --------------- | ------------------------------------------------------------------- |
-| `PORT`                   | `4000`          | Port the API listens on                                             |
-| `JWT_SECRET`             | random (dev)    | Signs admin login tokens. **Required when `NODE_ENV=production`**   |
-| `JWT_EXPIRES_IN`         | `12h`           | How long an admin stays logged in                                   |
-| `DATABASE_URL`           | (empty)         | MySQL connection as one URL: `mysql://user:password@host:3306/name` |
-| `MYSQL_HOST`             | `127.0.0.1`     | MySQL server (used when `DATABASE_URL` is empty)                    |
-| `MYSQL_PORT`             | `3306`          | MySQL port                                                          |
-| `MYSQL_USER`             | `root`          | MySQL user                                                          |
-| `MYSQL_PASSWORD`         | (empty)         | MySQL password                                                      |
-| `MYSQL_DATABASE`         | `doctor_clinic` | Database name (created on startup if the user is allowed to)        |
-| `UPLOAD_DIR`             | `data/uploads`  | Folder for uploaded patient PDFs                                    |
-| `MAX_UPLOAD_MB`          | `20`            | Largest PDF accepted                                                |
-| `PATIENT_ACCESS_MINUTES` | `30`            | How long a patient can open their PDFs after looking up their file  |
-| `ADMIN_USERNAME`         | `admin`         | First admin account (created only if no admin exists)               |
-| `ADMIN_PASSWORD`         | `admin123`      | Its password                                                        |
-| `CORS_ORIGINS`           | `*`             | Frontend address(es) allowed to call the API, comma separated       |
-| `TRUST_PROXY`            | off             | Number of proxies in front of the API, e.g. `1`                     |
-| `LOOKUP_MAX_ATTEMPTS`    | `10`            | Failed patient lookups allowed per visitor per window               |
-| `LOOKUP_WINDOW_MINUTES`  | `15`            | Length of that window                                               |
+| Variable                 | Default                       | Purpose                                                                             |
+| ------------------------ | ----------------------------- | ----------------------------------------------------------------------------------- |
+| `PORT`                   | `4000`                        | Port the API listens on                                                             |
+| `JWT_SECRET`             | (created)                     | Signs staff logins. Empty: a random secret is created once and kept in the database |
+| `JWT_EXPIRES_IN`         | `12h`                         | How long an admin stays logged in                                                   |
+| `DATABASE_URL`           | (empty)                       | MySQL connection as one URL: `mysql://user:password@host:3306/name`                 |
+| `MYSQL_HOST`             | `127.0.0.1`                   | MySQL server (used when `DATABASE_URL` is empty)                                    |
+| `MYSQL_PORT`             | `3306`                        | MySQL port                                                                          |
+| `MYSQL_USER`             | `root`                        | MySQL user                                                                          |
+| `MYSQL_PASSWORD`         | (empty)                       | MySQL password                                                                      |
+| `MYSQL_DATABASE`         | `doctor_clinic`               | Database name (created on startup if the user is allowed to)                        |
+| `UPLOAD_DIR`             | `data/uploads`                | Folder for uploaded patient PDFs                                                    |
+| `MAX_UPLOAD_MB`          | `20`                          | Largest PDF accepted                                                                |
+| `PATIENT_ACCESS_MINUTES` | `30`                          | How long a patient can open their PDFs after looking up their file                  |
+| `ADMIN_USERNAME`         | `admin`                       | First admin account (created only if no admin exists)                               |
+| `ADMIN_PASSWORD`         | `admin123` (development only) | Its password. Required in production                                                |
+| `CORS_ORIGINS`           | `*`                           | Frontend address(es) allowed to call the API, comma separated                       |
+| `TRUST_PROXY`            | off                           | Number of proxies in front of the API, e.g. `1`                                     |
+| `LOOKUP_MAX_ATTEMPTS`    | `10`                          | Failed patient lookups allowed per visitor per window                               |
+| `LOOKUP_WINDOW_MINUTES`  | `15`                          | Length of that window                                                               |
 
 ## API
 
@@ -128,12 +129,15 @@ named `.pdf`) and saved under random names, so a stored file cannot be found by 
 
 ## Deploying
 
-**[DEPLOY.md](DEPLOY.md)** puts the whole system (MySQL, this API and the website, with automatic HTTPS) on one
-server with Docker, step by step: `deploy/docker-compose.yml` runs it and `deploy/backup.sh` backs it up.
+- **[RAILWAY.md](RAILWAY.md)**: run everything on Railway, with no server to manage. Set up once in the Railway
+  dashboard; every push to GitHub deploys automatically.
+- **[DEPLOY.md](DEPLOY.md)**: run everything on your own server with Docker (`deploy/docker-compose.yml`, with
+  automatic HTTPS and `deploy/backup.sh` for backups).
 
 If you host the parts separately instead:
 
-- Set `NODE_ENV=production`, a long random `JWT_SECRET`, and `CORS_ORIGINS` to your frontend address.
+- Set `NODE_ENV=production`, `ADMIN_PASSWORD` (required in production for the first staff login), and
+  `CORS_ORIGINS` to your frontend address.
 - Serve it over **HTTPS**. Patient data must not travel over plain HTTP.
 - Behind a proxy or hosting platform, set `TRUST_PROXY=1` so rate limiting works per visitor.
 - Use a MySQL server that is backed up (most hosts offer managed MySQL with daily backups), or back it up yourself

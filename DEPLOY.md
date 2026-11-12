@@ -1,4 +1,6 @@
-# Deploying the clinic system
+# Deploying the clinic system on your own server
+
+Prefer not to manage a server? Use [RAILWAY.md](RAILWAY.md) instead.
 
 This puts the whole system on one server: MySQL, the API ([doctor-backend](https://github.com/AHMEDHOSSAM2222/doctor-backend))
 and the website ([doctor-frontend](https://github.com/AHMEDHOSSAM2222/doctor-frontend)), with automatic HTTPS.
@@ -71,7 +73,7 @@ branch, switch both folders to it with `git -C doctor-backend checkout <branch>`
 cd /opt/clinic/doctor-backend/deploy && cp .env.example .env
 ```
 
-Make three long random secrets (run it three times and copy each result):
+Make two long random passwords for the database (run it twice and copy each result):
 
 ```bash
 openssl rand -hex 24
@@ -86,7 +88,6 @@ Then edit the file (`nano .env`; save with Ctrl+O, Enter, exit with Ctrl+X):
 | `ADMIN_PASSWORD`      | the first staff password (used only on the very first start) |
 | `MYSQL_ROOT_PASSWORD` | secret 1                                                     |
 | `MYSQL_PASSWORD`      | secret 2                                                     |
-| `JWT_SECRET`          | secret 3                                                     |
 
 Keep a copy of this file somewhere safe (for example a password manager). Without it you cannot restore backups.
 

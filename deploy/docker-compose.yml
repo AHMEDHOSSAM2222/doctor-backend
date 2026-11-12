@@ -39,7 +39,7 @@ services:
       MYSQL_USER: doctor
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_DATABASE: doctor_clinic
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in deploy/.env}
+      JWT_SECRET: ${JWT_SECRET:-}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in deploy/.env}
       CORS_ORIGINS: https://${DOMAIN}

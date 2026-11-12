@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,10 +90,24 @@ export async function openDatabase(connection) {
   };
 }
 
+/** Returns a random secret stored under `name`, creating it on first use (safe if two servers start at once). */
+export async function loadOrCreateSecret(db, name) {
+  const existing = await db.get('SELECT value FROM settings WHERE name = ?', [name]);
+  if (existing) return existing.value;
+  await db.run('INSERT IGNORE INTO settings (name, value) VALUES (?, ?)', [
+    name,
+    crypto.randomBytes(48).toString('hex'),
+  ]);
+  return (await db.get('SELECT value FROM settings WHERE name = ?', [name])).value;
+}
+
 /** Creates the first admin account from env settings when no admin exists yet. */
 export async function seedAdmin(db, username, password) {
   const { count } = await db.get('SELECT COUNT(*) AS count FROM admins');
   if (count > 0) return false;
+  if (!password) {
+    throw new Error('Set ADMIN_PASSWORD: it is the password for the first staff login.');
+  }
   await db.run('INSERT INTO admins (username, password_hash) VALUES (?, ?)', [username, hashPassword(password)]);
   console.log(`[db] Created admin account "${username}". Change the password after first login.`);
   return true;

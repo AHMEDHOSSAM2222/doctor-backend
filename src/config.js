@@ -1,4 +1,3 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,15 +12,6 @@ if (fs.existsSync(envFile)) {
 
 const env = process.env;
 const isProduction = env.NODE_ENV === 'production';
-
-let jwtSecret = env.JWT_SECRET;
-if (!jwtSecret) {
-  if (isProduction) {
-    throw new Error('JWT_SECRET must be set in production.');
-  }
-  jwtSecret = crypto.randomBytes(32).toString('hex');
-  console.warn('[config] JWT_SECRET not set: using a random secret, admin logins will reset on restart.');
-}
 
 const resolvePath = (value) => (path.isAbsolute(value) ? value : path.join(rootDir, value));
 
@@ -55,7 +45,8 @@ export const config = {
   maxUploadMb: Number(env.MAX_UPLOAD_MB) || 20,
   // How long a patient can open their PDFs after entering their file number and phone.
   patientAccessMinutes: Number(env.PATIENT_ACCESS_MINUTES) || 30,
-  jwtSecret,
+  // Signs staff logins. When not set, a random secret is created once and kept in the database (see server.js).
+  jwtSecret: env.JWT_SECRET || null,
   jwtExpiresIn: env.JWT_EXPIRES_IN || '12h',
   // Set to the number of reverse proxies in front of the app (e.g. 1 on Render/Railway/Nginx)
   // so rate limiting sees the real client IP.
@@ -66,7 +57,8 @@ export const config = {
     .map((o) => o.trim())
     .filter(Boolean),
   adminUsername: env.ADMIN_USERNAME || 'admin',
-  adminPassword: env.ADMIN_PASSWORD || 'admin123',
+  // First staff password. In production it must be set; the development default is for local use only.
+  adminPassword: env.ADMIN_PASSWORD || (isProduction ? null : 'admin123'),
   // Max patient lookups per IP in the window below (protects patient files from guessing).
   lookupMaxAttempts: Number(env.LOOKUP_MAX_ATTEMPTS) || 10,
   lookupWindowMinutes: Number(env.LOOKUP_WINDOW_MINUTES) || 15,
